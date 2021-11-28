@@ -29,8 +29,11 @@
 #define CIRCLE_RADIUS 10
 #define CUBE_WIDTH 20
 
+#define DEBOUNCE_DELAY 1
+
 static TaskHandle_t running_the_display_task = NULL;
 static TaskHandle_t using_buttons_task = NULL;
+static TaskHandle_t using_the_mouse_task = NULL;
 
 
 typedef struct buttons_buffer {
@@ -108,10 +111,109 @@ void using_buttons(void *pvParameters)
 {
     tumDrawBindThread();
 
+    static char keys[4] = {SDL_SCANCODE_A,SDL_SCANCODE_B,SDL_SCANCODE_C,SDL_SCANCODE_D};
+
+    //array to store how many times each button was pressed
+    static int button_counter[4] = {0,0,0,0};
+
+    static char output_text[20];
+
+    //debounce vars
+    static TickType_t last_debounce_time[4] = {0,0,0,0};
+    static int last_button_state[4] = {0,0,0,0};
+    static int button_state[4] = {0,0,0,0};
+
+    static int my_temp_button = 0;
+
     while(1)
     {
+        tumEventFetchEvents(FETCH_EVENT_NONBLOCK); // Query events backend for new events, ie. button presses
+        xGetButtonInput(); // Update global input
+
+        if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+            if (buttons.buttons[KEYCODE(Q)]) { // Equiv to SDL_SCANCODE_Q
+                exit(EXIT_SUCCESS);
+            }
+
+            //increment counter by one if key is pressed
+            //combating debounce read more at https://www.arduino.cc/en/Tutorial/BuiltInExamples/Debounce
+            for(int i = 0; i < 4; i++){
+
+                my_temp_button = buttons.buttons[keys[i]];
+
+                if(my_temp_button != last_button_state[i])
+                {
+                    last_debounce_time[i] = xTaskGetTickCount();
+                }
+                if((xTaskGetTickCount() - last_debounce_time[i]) > DEBOUNCE_DELAY){
+                    if(my_temp_button != button_state[i])
+                    {
+                        button_state[i] = my_temp_button;
+                        button_counter[i] += my_temp_button;
+                    }
+                }
+                last_button_state[i] = my_temp_button;
+            }
+            //end of semaphore
+            xSemaphoreGive(buttons.lock);
+        }
+
+        //reset the values if left mouse button is pressed
+        if(tumEventGetMouseLeft())
+        {
+            for(int i = 0; i < 4; i++){
+                button_counter[i] = 0;
+            }
+        }
+
         tumDrawClear(White); // Clear screen
 
+        //splicing string for printing to screen
+        //61 is the offset between ACII 'A' and SDL_SCANCODE_Al
+        for(int i = 0; i < 4; i++){
+            sprintf(output_text, "%c: %d",keys[i] + 61, button_counter[i]);
+            tumDrawText(output_text,100,100 + i*50, Black);
+        }
+
+
+        //quit text
+        tumDrawText("press q to quit and left click resets the values",10,10, Red);
+
+
+        tumDrawUpdateScreen(); // Refresh the screen to draw string
+
+        // Basic sleep of 1 milliseconds
+        vTaskDelay((TickType_t)1);
+    }
+        
+
+
+}
+
+void using_the_mouse(void *pvParameters)
+{
+    tumDrawBindThread();
+    static char output_text[20];
+
+    while (1) 
+    {
+        tumEventFetchEvents(FETCH_EVENT_NONBLOCK); // Query events backend for new events, ie. button presses
+        xGetButtonInput(); // Update global input
+
+        if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+            if (buttons.buttons[KEYCODE(Q)]) { // Equiv to SDL_SCANCODE_Q
+                exit(EXIT_SUCCESS);
+            }
+
+        }
+
+        tumDrawClear(White); // Clear screen
+        
+        sprintf(output_text, "Mouse x: %d", tumEventGetMouseX());
+        tumDrawText(output_text,100,100, Black);
+
+        sprintf(output_text, "Mouse y: %d", tumEventGetMouseY());
+        tumDrawText(output_text,100,150, Black);
 
 
 
@@ -120,10 +222,8 @@ void using_buttons(void *pvParameters)
         // Basic sleep of 20 milliseconds
         vTaskDelay((TickType_t)20);
 
-
-
     }
-        
+    
 
 
 }
@@ -229,12 +329,19 @@ int main(int argc, char *argv[])
         case '2': printf("Starting exercise 2.2");
             printf("Starting exercise 2.1");
             
-            if (xTaskCreate(using_buttons, "Running_display", mainGENERIC_STACK_SIZE * 2, NULL,
+            if (xTaskCreate(using_buttons, "using buttons", mainGENERIC_STACK_SIZE * 2, NULL,
                     mainGENERIC_PRIORITY, &using_buttons_task) != pdPASS) {
                 goto err_task;
             }
             break;
-        case '3': printf("Starting exercise 2.3"); break;
+        case '3': printf("Starting exercise 2.3");
+            if (xTaskCreate(using_the_mouse, "using buttons", mainGENERIC_STACK_SIZE * 2, NULL,
+                    mainGENERIC_PRIORITY, &using_the_mouse_task) != pdPASS) {
+                goto err_task;
+            }
+             break;
+        default:
+            return -1;
     }
 
     
