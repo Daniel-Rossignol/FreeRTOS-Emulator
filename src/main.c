@@ -23,7 +23,15 @@
 #define mainGENERIC_PRIORITY (tskIDLE_PRIORITY)
 #define mainGENERIC_STACK_SIZE ((unsigned short)2560)
 
-static TaskHandle_t DemoTask = NULL;
+#define DRAW_OFFSET_X SCREEN_WIDTH/2
+#define DRAW_OFFSET_Y SCREEN_HEIGHT/2
+#define ROT_RADIUS 50
+#define CIRCLE_RADIUS 10
+#define CUBE_WIDTH 20
+
+static TaskHandle_t running_the_display_task = NULL;
+static TaskHandle_t using_buttons_task = NULL;
+
 
 typedef struct buttons_buffer {
     unsigned char buttons[SDL_NUM_SCANCODES];
@@ -41,6 +49,85 @@ void xGetButtonInput(void)
 }
 
 #define KEYCODE(CHAR) SDL_SCANCODE_##CHAR
+
+void running_the_display(void *pvParameters)
+{
+    //thread that is allowed to draw needs this
+    tumDrawBindThread();
+
+    //points of the triangle
+    coord_t tr_points[3] = {{DRAW_OFFSET_X - 10, DRAW_OFFSET_Y + 10},
+                             {DRAW_OFFSET_X - 10, DRAW_OFFSET_Y - 10}, 
+                             {DRAW_OFFSET_X + 10, DRAW_OFFSET_Y + 10}};
+
+    //angle of rotation
+    float phi = 0;
+    //for sliding text at the top
+    int text_offset = 0;
+    //amount by which the text will be moved (<0 for left)
+    int text_dir = 10;
+    while (1) 
+    {
+        tumDrawClear(White); // Clear screen
+        
+    
+        phi += 0.05; //spin it
+        //draw Circle and Box with offset from rotation
+        tumDrawCircle(DRAW_OFFSET_X + cos(phi)*ROT_RADIUS,
+                        DRAW_OFFSET_Y + sin(phi)*ROT_RADIUS,
+                         CIRCLE_RADIUS, Black);
+        tumDrawFilledBox(DRAW_OFFSET_X - CUBE_WIDTH/2 + cos(phi + 3.14)*ROT_RADIUS,
+                            DRAW_OFFSET_Y - CUBE_WIDTH/2 + sin(phi + 3.14)*ROT_RADIUS,
+                            CUBE_WIDTH, CUBE_WIDTH, Red);
+        //stationary triangle in middle
+        tumDrawTriangle(tr_points, Blue);
+
+        //bottom text
+        tumDrawText("Covid", DRAW_OFFSET_X - 20, DRAW_OFFSET_Y + 100, Pink);
+
+        //top sliding text
+        //check if offscreen while hotfixing the width of the text
+        if(text_offset + 50 >SCREEN_WIDTH || text_offset<0)
+        {
+            text_dir*=-1;
+        }
+        text_offset += text_dir;
+
+        tumDrawText("Fuck", text_offset, DRAW_OFFSET_Y - 100, Pink);
+
+
+        tumDrawUpdateScreen(); // Refresh the screen to draw string
+
+        // Basic sleep of 20 milliseconds
+        vTaskDelay((TickType_t)20);
+    }
+}
+
+
+void using_buttons(void *pvParameters)
+{
+    tumDrawBindThread();
+
+    while(1)
+    {
+        tumDrawClear(White); // Clear screen
+
+
+
+
+        tumDrawUpdateScreen(); // Refresh the screen to draw string
+
+        // Basic sleep of 20 milliseconds
+        vTaskDelay((TickType_t)20);
+
+
+
+    }
+        
+
+
+}
+
 
 void vDemoTask(void *pvParameters)
 {
@@ -98,11 +185,19 @@ void vDemoTask(void *pvParameters)
     }
 }
 
+
+
+
 int main(int argc, char *argv[])
 {
     char *bin_folder_path = tumUtilGetBinFolderPath(argv[0]);
 
-    printf("Initializing: ");
+
+    //deciding which subexercise to run
+    printf("Enter which exercise to run (1/2/3):");
+    char in = fgetc(stdin);
+
+    // printf("Initializing: ");
 
     if (tumDrawInit(bin_folder_path)) {
         PRINT_ERROR("Failed to initialize drawing");
@@ -114,10 +209,6 @@ int main(int argc, char *argv[])
         goto err_init_events;
     }
 
-    if (tumSoundInit(bin_folder_path)) {
-        PRINT_ERROR("Failed to initialize audio");
-        goto err_init_audio;
-    }
 
     buttons.lock = xSemaphoreCreateMutex(); // Locking mechanism
     if (!buttons.lock) {
@@ -125,20 +216,41 @@ int main(int argc, char *argv[])
         goto err_buttons_lock;
     }
 
-    if (xTaskCreate(vDemoTask, "DemoTask", mainGENERIC_STACK_SIZE * 2, NULL,
-                    mainGENERIC_PRIORITY, &DemoTask) != pdPASS) {
-        goto err_demotask;
+
+    switch(in) {
+        case '1': 
+            printf("Starting exercise 2.1");
+            
+            if (xTaskCreate(running_the_display, "Running_display", mainGENERIC_STACK_SIZE * 2, NULL,
+                    mainGENERIC_PRIORITY, &running_the_display_task) != pdPASS) {
+                goto err_task;
+            }
+            break;
+        case '2': printf("Starting exercise 2.2");
+            printf("Starting exercise 2.1");
+            
+            if (xTaskCreate(using_buttons, "Running_display", mainGENERIC_STACK_SIZE * 2, NULL,
+                    mainGENERIC_PRIORITY, &using_buttons_task) != pdPASS) {
+                goto err_task;
+            }
+            break;
+        case '3': printf("Starting exercise 2.3"); break;
     }
+
+    
+
+    // if (xTaskCreate(vDemoTask, "DemoTask", mainGENERIC_STACK_SIZE * 2, NULL,
+    //                 mainGENERIC_PRIORITY, &DemoTask) != pdPASS) {
+    //     goto err_demotask;
+    // }
 
     vTaskStartScheduler();
 
     return EXIT_SUCCESS;
 
-err_demotask:
+err_task:
     vSemaphoreDelete(buttons.lock);
 err_buttons_lock:
-    tumSoundExit();
-err_init_audio:
     tumEventExit();
 err_init_events:
     tumDrawExit();
