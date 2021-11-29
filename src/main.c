@@ -28,8 +28,10 @@
 #define ROT_RADIUS 50
 #define CIRCLE_RADIUS 10
 #define CUBE_WIDTH 20
+#define TEXT_SPEED 10
 
 #define DEBOUNCE_DELAY 1
+#define NUMBER_OF_MONITORED_KEYS 4
 
 static TaskHandle_t running_the_display_task = NULL;
 static TaskHandle_t using_buttons_task = NULL;
@@ -68,7 +70,7 @@ void running_the_display(void *pvParameters)
     //for sliding text at the top
     static int text_offset = 0;
     //amount by which the text will be moved (<0 for left)
-    static int text_dir = 10;
+    static int text_dir = TEXT_SPEED;
     while (1) 
     {
         tumDrawClear(White); // Clear screen
@@ -111,17 +113,17 @@ void using_buttons(void *pvParameters)
 {
     tumDrawBindThread();
 
-    static unsigned char keys[4] = {SDL_SCANCODE_A,SDL_SCANCODE_B,SDL_SCANCODE_C,SDL_SCANCODE_D};
+    static unsigned char keys[NUMBER_OF_MONITORED_KEYS] = {SDL_SCANCODE_A,SDL_SCANCODE_B,SDL_SCANCODE_C,SDL_SCANCODE_D};
 
     //array to store how many times each button was pressed
-    static int button_counter[4] = {0,0,0,0};
+    static int button_counter[NUMBER_OF_MONITORED_KEYS] = {0,0,0,0};
 
     static char output_text[20];
 
     //debounce vars
-    static TickType_t last_debounce_time[4] = {0,0,0,0};
-    static int last_button_state[4] = {0,0,0,0};
-    static int button_state[4] = {0,0,0,0};
+    static TickType_t last_debounce_time[NUMBER_OF_MONITORED_KEYS] = {0,0,0,0};
+    static int last_button_state[NUMBER_OF_MONITORED_KEYS] = {0,0,0,0};
+    static int button_state[NUMBER_OF_MONITORED_KEYS] = {0,0,0,0};
 
     static int my_temp_button = 0;
 
@@ -137,7 +139,7 @@ void using_buttons(void *pvParameters)
 
             //increment counter by one if key is pressed
             //combating debounce read more at https://www.arduino.cc/en/Tutorial/BuiltInExamples/Debounce
-            for(int i = 0; i < 4; i++){
+            for(int i = 0; i < NUMBER_OF_MONITORED_KEYS; i++){
 
                 my_temp_button = buttons.buttons[keys[i]];
 
@@ -161,7 +163,7 @@ void using_buttons(void *pvParameters)
         //reset the values if left mouse button is pressed
         if(tumEventGetMouseLeft())
         {
-            for(int i = 0; i < 4; i++){
+            for(int i = 0; i < NUMBER_OF_MONITORED_KEYS; i++){
                 button_counter[i] = 0;
             }
         }
@@ -170,7 +172,7 @@ void using_buttons(void *pvParameters)
 
         //splicing strings for printing to screen
         //61 is the offset between ASCII 'A' and SDL_SCANCODE_A
-        for(int i = 0; i < 4; i++){
+        for(int i = 0; i < NUMBER_OF_MONITORED_KEYS; i++){
             sprintf(output_text, "%c: %d",keys[i] + 61, button_counter[i]);
             tumDrawText(output_text,100,100 + i*50, Black);
         }
@@ -262,6 +264,7 @@ int main(int argc, char *argv[])
     }
 
 
+    //decide which subexercise is chosen
     switch(in) {
         case '1': 
             printf("Starting exercise 2.1");
