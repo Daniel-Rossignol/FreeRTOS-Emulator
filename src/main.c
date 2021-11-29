@@ -58,23 +58,23 @@ void running_the_display(void *pvParameters)
     //thread that is allowed to draw needs this
     tumDrawBindThread();
 
-    //points of the triangle
-    coord_t tr_points[3] = {{DRAW_OFFSET_X - 10, DRAW_OFFSET_Y + 10},
+    //arbitrary points of the triangle
+    static coord_t tr_points[3] = {{DRAW_OFFSET_X - 10, DRAW_OFFSET_Y + 10},
                              {DRAW_OFFSET_X - 10, DRAW_OFFSET_Y - 10}, 
                              {DRAW_OFFSET_X + 10, DRAW_OFFSET_Y + 10}};
 
     //angle of rotation
-    float phi = 0;
+    static float phi = 0;
     //for sliding text at the top
-    int text_offset = 0;
+    static int text_offset = 0;
     //amount by which the text will be moved (<0 for left)
-    int text_dir = 10;
+    static int text_dir = 10;
     while (1) 
     {
         tumDrawClear(White); // Clear screen
         
     
-        phi += 0.05; //spin it
+        phi += 0.05; //increment the rotational angle
         //draw Circle and Box with offset from rotation
         tumDrawCircle(DRAW_OFFSET_X + cos(phi)*ROT_RADIUS,
                         DRAW_OFFSET_Y + sin(phi)*ROT_RADIUS,
@@ -111,7 +111,7 @@ void using_buttons(void *pvParameters)
 {
     tumDrawBindThread();
 
-    static char keys[4] = {SDL_SCANCODE_A,SDL_SCANCODE_B,SDL_SCANCODE_C,SDL_SCANCODE_D};
+    static unsigned char keys[4] = {SDL_SCANCODE_A,SDL_SCANCODE_B,SDL_SCANCODE_C,SDL_SCANCODE_D};
 
     //array to store how many times each button was pressed
     static int button_counter[4] = {0,0,0,0};
@@ -168,8 +168,8 @@ void using_buttons(void *pvParameters)
 
         tumDrawClear(White); // Clear screen
 
-        //splicing string for printing to screen
-        //61 is the offset between ACII 'A' and SDL_SCANCODE_Al
+        //splicing strings for printing to screen
+        //61 is the offset between ASCII 'A' and SDL_SCANCODE_A
         for(int i = 0; i < 4; i++){
             sprintf(output_text, "%c: %d",keys[i] + 61, button_counter[i]);
             tumDrawText(output_text,100,100 + i*50, Black);
@@ -191,8 +191,10 @@ void using_buttons(void *pvParameters)
 }
 
 void using_the_mouse(void *pvParameters)
-{
+{   
+    //only one thread can draw
     tumDrawBindThread();
+
     static char output_text[20];
 
     while (1) 
@@ -200,6 +202,7 @@ void using_the_mouse(void *pvParameters)
         tumEventFetchEvents(FETCH_EVENT_NONBLOCK); // Query events backend for new events, ie. button presses
         xGetButtonInput(); // Update global input
 
+        //q to quit
         if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
             if (buttons.buttons[KEYCODE(Q)]) { // Equiv to SDL_SCANCODE_Q
                 exit(EXIT_SUCCESS);
@@ -208,12 +211,13 @@ void using_the_mouse(void *pvParameters)
         }
 
         tumDrawClear(White); // Clear screen
-        
+
+        //printing Mouse location next to mouse cursor
         sprintf(output_text, "Mouse x: %d", tumEventGetMouseX());
-        tumDrawText(output_text,100,100, Black);
+        tumDrawText(output_text,tumEventGetMouseX(),tumEventGetMouseY(), Black);
 
         sprintf(output_text, "Mouse y: %d", tumEventGetMouseY());
-        tumDrawText(output_text,100,150, Black);
+        tumDrawText(output_text,tumEventGetMouseX(),tumEventGetMouseY()+30, Black);
 
 
 
@@ -229,64 +233,6 @@ void using_the_mouse(void *pvParameters)
 }
 
 
-void vDemoTask(void *pvParameters)
-{
-    // structure to store time retrieved from Linux kernel
-    static struct timespec the_time;
-    static char our_time_string[100];
-    static int our_time_strings_width = 0;
-
-    // Needed such that Gfx library knows which thread controlls drawing
-    // Only one thread can call tumDrawUpdateScreen while and thread can call
-    // the drawing functions to draw objects. This is a limitation of the SDL
-    // backend.
-    tumDrawBindThread();
-
-    while (1) {
-        tumEventFetchEvents(FETCH_EVENT_NONBLOCK); // Query events backend for new events, ie. button presses
-        xGetButtonInput(); // Update global input
-
-        // `buttons` is a global shared variable and as such needs to be
-        // guarded with a mutex, mutex must be obtained before accessing the
-        // resource and given back when you're finished. If the mutex is not
-        // given back then no other task can access the reseource.
-        if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
-            if (buttons.buttons[KEYCODE(
-                                    Q)]) { // Equiv to SDL_SCANCODE_Q
-                exit(EXIT_SUCCESS);
-            }
-            xSemaphoreGive(buttons.lock);
-        }
-
-        tumDrawClear(White); // Clear screen
-
-        clock_gettime(CLOCK_REALTIME,
-                      &the_time); // Get kernel real time
-
-        // Format our string into our char array
-        sprintf(our_time_string,
-                "There has been %ld seconds since the Epoch. Press Q to quit",
-                (long int)the_time.tv_sec);
-
-        // Get the width of the string on the screen so we can center it
-        // Returns 0 if width was successfully obtained
-        if (!tumGetTextSize((char *)our_time_string,
-                            &our_time_strings_width, NULL))
-            tumDrawText(our_time_string,
-                        SCREEN_WIDTH / 2 -
-                        our_time_strings_width / 2,
-                        SCREEN_HEIGHT / 2 - DEFAULT_FONT_SIZE / 2,
-                        TUMBlue);
-
-        tumDrawUpdateScreen(); // Refresh the screen to draw string
-
-        // Basic sleep of 1000 milliseconds
-        vTaskDelay((TickType_t)1000);
-    }
-}
-
-
-
 
 int main(int argc, char *argv[])
 {
@@ -297,8 +243,7 @@ int main(int argc, char *argv[])
     printf("Enter which exercise to run (1/2/3):");
     char in = fgetc(stdin);
 
-    // printf("Initializing: ");
-
+    //Draw and Event init
     if (tumDrawInit(bin_folder_path)) {
         PRINT_ERROR("Failed to initialize drawing");
         goto err_init_drawing;
@@ -356,12 +301,12 @@ int main(int argc, char *argv[])
     return EXIT_SUCCESS;
 
 err_task:
-    vSemaphoreDelete(buttons.lock);
 err_buttons_lock:
-    tumEventExit();
+    vSemaphoreDelete(buttons.lock);
 err_init_events:
-    tumDrawExit();
+    tumEventExit();
 err_init_drawing:
+    tumDrawExit();
     return EXIT_FAILURE;
 }
 
